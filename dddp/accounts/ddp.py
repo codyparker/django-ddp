@@ -28,7 +28,6 @@ from dddp.models import get_meteor_id, get_object, Subscription
 from dddp.api import API, APIMixin, api_endpoint, Collection, Publication
 from dddp.websocket import MeteorError
 
-
 # pylint dones't like lower case attribute names on modules, but it's the normal
 # thing to do for Django signal names.  --> pylint: disable=C0103
 create_user = Signal(providing_args=['request', 'params'])
@@ -454,6 +453,8 @@ class Auth(APIMixin):
             return self.login_with_password(params)
         elif 'resume' in params:
             return self.login_with_resume_token(params)
+        elif 'cas' in params:
+            return self.login_with_cas_token(params)
         else:
             self.auth_failed(**params)
 
@@ -503,6 +504,32 @@ class Auth(APIMixin):
             user=user, purpose=HashPurpose.RESUME_LOGIN,
             minutes_valid=HASH_MINUTES_VALID[HashPurpose.RESUME_LOGIN],
         )
+
+    def login_with_cas_token(self, params):
+        from django.contrib.sessions.models import Session
+        """
+        Login with CAS (Central Authentication System) token.
+
+        The user was successfully validated by the external CAS system and needs to login.
+        If the local account doesn't exist, create it.
+        """
+        session = Session.objects.get(session_key=this.request.COOKIES['sessionid'])
+
+        if session.get_decoded().get('meteor_token') == params['cas']['credentialToken']:
+            # verified, now log them in
+            user = auth.get_user_model().objects.get(pk=session.get_decoded().get('_auth_user_id'))
+            if user is not None:
+                # the password verified for the user
+                if user.is_active:
+                    self.do_login(user)
+                    return get_user_token(
+                        user=user, purpose=HashPurpose.RESUME_LOGIN,
+                        minutes_valid=HASH_MINUTES_VALID[HashPurpose.RESUME_LOGIN],
+                    )
+
+
+
+
 
     @api_endpoint('changePassword')
     def change_password(self, old_password, new_password):
